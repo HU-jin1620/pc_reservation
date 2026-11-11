@@ -1,10 +1,11 @@
-// 互联设备：使用本地虚拟按键记录每台主机的电源状态。
+// 互联设备：通过小米电源（miiocli）查询并控制主机上下电。
 (function () {
   const grid = document.getElementById('iotGrid');
   const summary = document.getElementById('iotSummary');
   const refreshBtn = document.getElementById('refreshBtn');
   let devices = [];
   let busy = false;
+  let dryRun = true;
 
   function esc(value) {
     return String(value == null ? '' : value).replace(/[&<>"']/g, (char) => ({
@@ -17,11 +18,17 @@
   }
 
   function stateInfo(device) {
+    if (device.configured === false || device.state === 'unconfigured') {
+      return { label: '未配置电源', className: 'unconfigured' };
+    }
     if (device.state === 'on') {
       return { label: '已上电', className: 'on' };
     }
     if (device.state === 'off') {
       return { label: '已断电', className: 'off' };
+    }
+    if (device.state === 'error') {
+      return { label: '状态读取失败', className: 'error' };
     }
     return { label: '状态待确认', className: 'unknown' };
   }
@@ -33,11 +40,18 @@
     }
     grid.innerHTML = devices.map((device) => {
       const info = stateInfo(device);
-      const onDisabled = device.state === 'on' ? ' disabled' : '';
-      const offDisabled = device.state === 'off' ? ' disabled' : '';
+      const unconfigured = device.configured === false || device.state === 'unconfigured';
+      const onDisabled = unconfigured || device.state === 'on' ? ' disabled' : '';
+      const offDisabled = unconfigured || device.state === 'off' ? ' disabled' : '';
+      const modeText = unconfigured
+        ? '尚未配置小米电源映射'
+        : (dryRun ? '演练模式：不会真正上下电' : '真实控制已启用');
+      const errorText = device.error
+        ? `<div class="power-error">${esc(device.error)}</div>`
+        : '';
       const updatedText = device.state_updated_at
-        ? `上次操作 ${esc(device.state_updated_at)}`
-        : '尚未执行过操作';
+        ? `上次状态 ${esc(device.state_updated_at)}`
+        : '尚未读取到状态';
       return `
         <article class="power-card" data-device-id="${device.id}">
           <div class="power-card-head">
@@ -51,12 +65,17 @@
           </div>
           <div class="power-meta">
             <span>控制方式</span>
-            <strong>小米电源虚拟按键</strong>
+            <strong>小米电源</strong>
+          </div>
+          <div class="power-meta">
+            <span>当前模式</span>
+            <strong>${modeText}</strong>
           </div>
           <div class="power-meta">
             <span>状态记录</span>
             <strong>${updatedText}</strong>
           </div>
+          ${errorText}
           <div class="power-controls">
             <button class="power-btn power-on" type="button"
               data-action="on" data-device-id="${device.id}"${onDisabled}>
@@ -77,10 +96,12 @@
     try {
       const data = await api('/api/iot/devices');
       devices = data.devices || [];
+      dryRun = !!data.dry_run;
       render();
       const counts = data.summary || {};
-      const unknownText = counts.unknown ? ` · 待确认 ${counts.unknown}` : '';
-      summary.textContent = `主机 ${counts.total || devices.length} 台 · 已上电 ${counts.on || 0} · 已断电 ${counts.off || 0}${unknownText}`;
+      const mode = dryRun ? '演练模式' : '真实控制已启用';
+      const unconfiguredText = counts.unconfigured ? ` · 未配置 ${counts.unconfigured}` : '';
+      summary.textContent = `主机 ${counts.total || devices.length} 台 · 已上电 ${counts.on || 0} · 已断电 ${counts.off || 0}${unconfiguredText} · ${mode}`;
     } catch (error) {
       summary.textContent = '状态读取失败';
       toast(error.message, 'error');
@@ -102,7 +123,11 @@
         method: 'POST',
       });
       const hostName = result.device ? result.device.name : '设备';
-      toast(`${hostName} 已切换为${action === 'on' ? '已上电' : '已断电'}`, 'success');
+      if (result.dry_run) {
+        toast(result.message || `${hostName} 当前为演练模式，未真正上下电`, 'info');
+      } else {
+        toast(`${hostName} 已切换为${action === 'on' ? '已上电' : '已断电'}`, 'success');
+      }
       await loadDevices();
     } catch (error) {
       button.textContent = originalText;

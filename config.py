@@ -33,5 +33,5 @@ def load_secret_key():
 SECRET_KEY = load_secret_key()
 
 # 监听地址与端口
-HOST = os.environ.get("HOST", "127.0.0.1")
+HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "5000"))

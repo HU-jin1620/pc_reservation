@@ -1,0 +1,15 @@
+{
+  "enabled": false,
+  "devices": {
+    "sza-psg-1card-01": {
+      "did": "2028659099",
+      "siid": 2,
+      "piid": 1
+    },
+    "sza-psg-1card-03": {
+      "did": "2027468806",
+      "siid": 2,
+      "piid": 1
+    }
+  }
+}

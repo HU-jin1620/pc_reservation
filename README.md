@@ -11,7 +11,7 @@
 - 批量预订：按日期范围和小时范围一次预订多台设备、多个时段
 - 我的预订：按设备 + 日期分组展示，支持按时间批量取消
 - 设备管理：9 台预设设备，支持搜索、新增、编辑、删除
-- 互联设备：每台主机提供“上电 / 断电”虚拟按键，以及全部上电、全部断电
+- 互联设备：通过小米云 MIoT 接口控制小米智能插座，实现主机上电 / 断电；默认演练模式不会真实下发指令
 
 ## 技术栈
 
@@ -25,6 +25,7 @@
 ```text
 PC_reserved/
 ├── app.py                 # 应用入口，含路由、数据库初始化和 API
+├── mi_cloud.py            # 小米云登录与 MIoT 读写封装
 ├── config.py              # 配置，含 SECRET_KEY、HOST、PORT
 ├── requirements.txt       # Python 依赖
 ├── start.bat              # Windows 双击后台启动（隐藏窗口）
@@ -32,6 +33,7 @@ PC_reserved/
 ├── start.ps1              # Windows 后台启动脚本
 ├── stop.ps1               # Windows 停止脚本
 ├── booking.service        # Linux systemd 服务模板
+├── mi_power.example.json  # 小米电源设备映射示例
 ├── templates/             # 页面模板
 ├── static/                # CSS、JS、Logo 等静态资源
 ├── booking.db             # SQLite 数据库（首次运行会自动生成）
@@ -66,10 +68,12 @@ python app.py
 启动成功后，在浏览器访问：
 
 ```text
-http://127.0.0.1:5000
+本机访问：http://127.0.0.1:5000
+局域网访问：http://10.5.196.4:5000
 ```
 
 > 以上是前台启动，关闭 PowerShell 窗口后服务也会停止，只适合本地调试。
+> 局域网地址中的 `10.5.196.4` 是示例 IP，请换成部署电脑的实际局域网 IP。
 > 需要部署到服务器、关闭窗口后继续运行，请看下一节。
 
 ## 服务器部署（后台常驻、启动、停止）
@@ -96,7 +100,22 @@ pip install -r requirements.txt
 默认监听 `0.0.0.0:5000`，局域网其他机器通过下面的地址访问：
 
 ```text
-http://服务器局域网IP:5000/
+本机访问：http://127.0.0.1:5000/
+局域网访问：http://10.5.196.4:5000/
+```
+
+查询本机局域网 IP：
+
+```powershell
+ipconfig
+```
+
+在输出里找到正在使用的网卡（例如“无线局域网适配器 WLAN”或“以太网适配器”），复制其中的 IPv4 地址替换上面的 `10.5.196.4` 即可。局域网内其他电脑和手机需要连接到同一个网络才能访问。
+
+如果其他设备仍然无法访问，通常是 Windows 防火墙拦截了入站端口。以管理员身份运行 PowerShell，允许 TCP 5000 入站：
+
+```powershell
+New-NetFirewallRule -DisplayName "PC Reserved 5000" -Direction Inbound -Protocol TCP -LocalPort 5000 -Action Allow
 ```
 
 要换端口时，先在当前 PowerShell 设置环境变量再启动：
@@ -163,6 +182,15 @@ sudo systemctl enable --now booking
 sudo systemctl status booking
 journalctl -u booking -f
 ```
+
+服务启动时会先打印两种访问地址，例如：
+
+```text
+本机访问：   http://127.0.0.1:5000/
+局域网访问： http://192.168.100.110:5000/
+```
+
+这些信息会写入 systemd 日志，用上面的 `journalctl -u booking` 即可查看。如果局域网地址没自动识别出来，就运行 `hostname -I` 或 `ip addr` 查询后替换。
 
 停止、重启：
 
@@ -242,9 +270,94 @@ hostname -I
 
 ### 互联设备
 
-当前版本提供本地虚拟电源开关，用于演示“上电 / 断电”交互。每台主机都有“上电 / 断电”按键，也可以对全部设备执行“全部上电 / 全部断电”。
+互联设备页面通过小米云 MIoT 接口控制小米智能插座，实现主机上电 / 断电。这种方式和米家 App、Home Assistant 的 `Xiaomi Miot Auto` 集成走同一条云端通路，不需要和插座在同一局域网，只要服务器能访问外网即可控制账号内的插座。
 
-如需接入真实的小米电源（米家插座）控制主机上下电，需要补充每台设备对应的小米账号 Token 和设备网关信息。当前代码已预留电源状态表，后续可在 `app.py` 的互联设备 API 中替换为真实控制逻辑。
+#### 一、配置设备映射
+
+1. 复制 `mi_power.example.json` 为 `mi_power.json`。
+2. 在 `devices` 里按主机名添加条目，每台设备只需要三个字段：
+   - `did`：小米设备的云端 ID（即提取设备信息时的 `ID`）
+   - `siid`：开关所属服务编号，`dlx.plug.deim02` 这类开关插座固定为 `2`
+   - `piid`：开关属性编号，固定为 `1`
+3. `mi_power.json` 已被 `.gitignore` 忽略，不会提交到 GitHub。
+
+示例：
+
+```json
+{
+  "enabled": false,
+  "devices": {
+    "sza-psg-1card-01": {
+      "did": "2028659099",
+      "siid": 2,
+      "piid": 1
+    },
+    "sza-psg-1card-03": {
+      "did": "2027468806",
+      "siid": 2,
+      "piid": 1
+    }
+  }
+}
+```
+
+#### 二、新增一台小米电源
+
+拿到新插座信息后，例如 `Xiaomi-cloud-tokens-extractor` 输出的：
+
+```text
+NAME:     sza-psg-1card-03
+ID:       2027468806
+MAC:      14:D8:81:4F:E7:AF
+IP:       192.168.x.x
+TOKEN:    （云端方案不使用，这里省略）
+MODEL:    dlx.plug.deim02
+```
+
+字段对应关系：
+
+| 输出字段 | 配置文件位置 | 说明 |
+| --- | --- | --- |
+| `NAME` | `devices` 的键名 | 必须和设备管理页里的主机名完全一致 |
+| `ID` | `did` | 小米云端设备 ID |
+| `MODEL` | 无需填写 | 开关类插座 `dlx.plug.deim02` 默认 `siid=2`、`piid=1` |
+| `IP` / `TOKEN` | 无需填写 | 云端方案不再使用局域网 IP 和 token |
+
+在 `devices` 下新增一条即可，多个设备之间用逗号分隔：
+
+```json
+"你的主机名": {
+  "did": "上面输出的 ID",
+  "siid": 2,
+  "piid": 1
+}
+```
+
+`enabled` 默认保持 `false`，此时页面处于演练模式，只会查询真实状态，点击上下电不会对设备下发指令。设备测试完成、确认要实际控制后，再把它改为 `true` 并重启服务。
+
+#### 三、登录小米云（只需一次）
+
+在项目目录执行扫码登录：
+
+```powershell
+.\venv\Scripts\python.exe mi_cloud.py qr
+```
+
+脚本会在当前目录生成 `mi_qr.png`，用米家 App 扫码确认后，登录凭证会保存到 `mi_cloud.json`。应用后续会读取该文件进行查询和控制，无需重复登录。
+
+也可以使用密码方式登录（首次可能要求输入图形验证码）：
+
+```powershell
+.\venv\Scripts\python.exe mi_cloud.py password --username 你的小米账号 --password 你的密码
+```
+
+验证云端只读查询是否打通：
+
+```powershell
+.\venv\Scripts\python.exe mi_cloud.py status --did 2028659099 --siid 2 --piid 1
+```
+
+正常会输出类似 `STATUS_OK value=True`。`mi_cloud.json` 同样已被 `.gitignore` 忽略，请勿把真实账号凭证或 token 提交到仓库。
 
 ### 我的预订
 
@@ -260,8 +373,9 @@ hostname -I
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `SECRET_KEY` | 自动生成并保存到 `.secret_key` | 会话签名密钥，用于保持登录 |
-| `HOST` | `127.0.0.1` | 监听地址 |
+| `HOST` | `0.0.0.0` | 监听地址，`0.0.0.0` 表示允许局域网访问 |
 | `PORT` | `5000` | 监听端口 |
+| `MI_CLOUD_TIMEOUT` | `15` | 单次小米云请求的超时秒数 |
 
 示例（Windows PowerShell）：
 
@@ -288,7 +402,11 @@ __pycache__/
 *.py[cod]
 .secret_key
 booking.db
+mi_power.json
+mi_cloud.json
+mi_qr.png
+mi_captcha.png
 ```
 
-提交代码时请勿将 `booking.db` 或 `.secret_key` 上传到公开仓库，以免泄露账号数据和会话密钥。
+提交代码时请勿将 `booking.db`、`.secret_key`、`mi_power.json` 或 `mi_cloud.json` 上传到公开仓库，以免泄露账号数据、会话密钥或小米云 token。
 

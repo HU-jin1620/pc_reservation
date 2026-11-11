@@ -251,12 +251,20 @@ input:focus, select:focus { outline: none; border-color: #2563eb; }
 .power-badge.off .dot { background: #ef4444; }
 .power-badge.unknown { background: #eef1f4; color: #6b7280; }
 .power-badge.unknown .dot { background: #9ca3af; }
+.power-badge.unconfigured { background: #f4f0eb; color: #8a6d3b; }
+.power-badge.unconfigured .dot { background: #b78a52; }
+.power-badge.error { background: #fff1e6; color: #c2410c; }
+.power-badge.error .dot { background: #fb923c; }
 .power-meta {
   display: grid; grid-template-columns: 68px minmax(0, 1fr); gap: 10px;
   padding-top: 10px; border-top: 1px solid #f0f2f5; font-size: 12px;
 }
 .power-meta span { color: #8a919f; }
 .power-meta strong { color: #374151; font-weight: 500; overflow-wrap: anywhere; }
+.power-error {
+  padding: 7px 9px; border-radius: 6px; background: #fff7ed;
+  color: #b45309; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere;
+}
 .power-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto; padding-top: 2px; }
 .power-btn {
   min-height: 36px; border: 1px solid transparent; border-radius: 6px;

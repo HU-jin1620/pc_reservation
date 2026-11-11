@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """机时预订网站后端。Flask + SQLite。"""
 
+import json
 import os
 import re
 import sqlite3
@@ -11,9 +12,13 @@ from flask import Flask, g, jsonify, redirect, render_template, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import config
+import mi_cloud
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "booking.db")
+MI_POWER_PATH = os.path.join(BASE_DIR, "mi_power.json")
+MI_CLOUD_PATH = os.path.join(BASE_DIR, "mi_cloud.json")
+MI_CLOUD_TIMEOUT = float(os.environ.get("MI_CLOUD_TIMEOUT", "15"))
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
@@ -37,6 +42,19 @@ SEED_DEVICES = [
     ("sza-psg-1card-07", "10.6.128.7", "深圳", "Ubuntu 20.04.6 LTS", "Intel i7-13700k", "PRIME Z790-P WIFI", "ASUSTeK", "64GiB"),
     ("sza-psg-1card-08", "10.6.128.8", "深圳", "Ubuntu 20.04.6 LTS", "Intel i7-13700K", "PRIME Z790-P WIFI", "ASUSTeK", "64GiB"),
     ("sza-psg-1card-09", "10.6.128.9", "深圳", "Ubuntu 20.04.6 LTS", "Intel i7-13700K", "PRIME Z790-P WIFI", "ASUSTeK", "64GiB"),
+]
+
+SEED_USERS = [
+    "jimmy.xie",
+    "sp.jackie.hai",
+    "sandy.liang",
+    "qingang.wang",
+    "junmen.chen",
+    "zhengbo.huang",
+    "xiaojie.lv",
+    "xiaoni.mai",
+    "chongwu.peng",
+    "zhilong.sun",
 ]
 
 SCHEMA = """
@@ -109,12 +127,13 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
-    # 种子用户 jimmy.xie（初始密码 123456）
-    if not conn.execute("SELECT 1 FROM users WHERE username=?", ("jimmy.xie",)).fetchone():
-        conn.execute(
-            "INSERT INTO users(username, password_hash, display_name, created_at) VALUES (?,?,?,?)",
-            ("jimmy.xie", generate_password_hash("123456"), "jimmy.xie", now_str()),
-        )
+    # 种子用户（初始密码 123456）
+    for username in SEED_USERS:
+        if not conn.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone():
+            conn.execute(
+                "INSERT INTO users(username, password_hash, display_name, created_at) VALUES (?,?,?,?)",
+                (username, generate_password_hash("123456"), username, now_str()),
+            )
     # 已有数据库只迁移一次，之后用户在账户弹窗中修改的密码不会被重启覆盖。
     password_migration = "seed_password_jimmy_xie_123456_v1"
     if not conn.execute("SELECT 1 FROM app_meta WHERE key=?", (password_migration,)).fetchone():
@@ -507,7 +526,7 @@ def api_my_bookings():
     return jsonify({"bookings": result})
 
 
-# ============================ 互联设备（本地虚拟电源）============================
+# ============================ 互联设备（小米电源控制）============================
 
 
 def load_power_states(db):
@@ -517,34 +536,110 @@ def load_power_states(db):
     return {row["device_id"]: row for row in rows}
 
 
+def load_mi_power_config():
+    try:
+        with open(MI_POWER_PATH, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except FileNotFoundError:
+        return {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def get_mi_mapping(config, device_name):
+    devices = config.get("devices") if isinstance(config.get("devices"), dict) else {}
+    return devices.get(device_name)
+
+
+def get_mi_cloud():
+    return mi_cloud.MiCloud(MI_CLOUD_PATH)
+
+
+def query_mi_power_state(config, mapping):
+    did = str(mapping.get("did", ""))
+    if not did:
+        raise RuntimeError("该设备未配置小米 did")
+    siid = int(mapping.get("siid", 2))
+    piid = int(mapping.get("piid", 1))
+    try:
+        return bool(get_mi_cloud().get_prop(did, siid, piid, timeout=MI_CLOUD_TIMEOUT))
+    except mi_cloud.MiCloudException as exc:
+        raise RuntimeError(str(exc)) from exc
+
+
+def set_mi_power_state(mapping, target_on):
+    did = str(mapping.get("did", ""))
+    if not did:
+        raise RuntimeError("该设备未配置小米 did")
+    siid = int(mapping.get("siid", 2))
+    piid = int(mapping.get("piid", 1))
+    try:
+        get_mi_cloud().set_prop(did, siid, piid, bool(target_on), timeout=MI_CLOUD_TIMEOUT)
+    except mi_cloud.MiCloudException as exc:
+        raise RuntimeError(str(exc)) from exc
+
+
+def save_power_state(db, device_id, device_name, state, updated_at):
+    db.execute(
+        "INSERT INTO power_state(device_id, device_name, state, updated_at) VALUES (?,?,?,?) "
+        "ON CONFLICT(device_id) DO UPDATE SET "
+        "device_name=excluded.device_name, state=excluded.state, updated_at=excluded.updated_at",
+        (device_id, device_name, state, updated_at),
+    )
+
+
 @app.route("/api/iot/devices", methods=["GET"])
 @login_required
 def api_iot_devices():
     db = get_db()
     hosts = db.execute("SELECT id, name, ip, location FROM devices ORDER BY name").fetchall()
     states = load_power_states(db)
+    config = load_mi_power_config()
+    control_enabled = bool(config.get("enabled", False))
     devices = []
 
     for host in hosts:
+        mapping = get_mi_mapping(config, host["name"])
         saved = states.get(host["id"])
-        state = saved["state"] if saved and saved["state"] in ("on", "off") else "unknown"
+        if not mapping:
+            state = "unconfigured"
+            error = None
+            state_updated_at = saved["updated_at"] if saved else None
+        else:
+            try:
+                power_on = query_mi_power_state(config, mapping)
+                state = "on" if power_on else "off"
+                error = None
+                state_updated_at = now_str()
+                save_power_state(db, host["id"], host["name"], state, state_updated_at)
+            except RuntimeError as exc:
+                state = "error"
+                error = str(exc)
+                state_updated_at = saved["updated_at"] if saved else None
+
         devices.append({
             "id": host["id"],
             "name": host["name"],
             "ip": host["ip"],
             "location": host["location"] or "深圳",
+            "configured": bool(mapping),
             "state": state,
-            "state_updated_at": saved["updated_at"] if saved else None,
+            "error": error,
+            "state_updated_at": state_updated_at,
         })
 
+    db.commit()
     return jsonify({
         "devices": devices,
         "summary": {
             "total": len(devices),
             "on": sum(1 for item in devices if item["state"] == "on"),
             "off": sum(1 for item in devices if item["state"] == "off"),
-            "unknown": sum(1 for item in devices if item["state"] == "unknown"),
+            "unknown": sum(1 for item in devices if item["state"] in ("unknown", "error")),
+            "unconfigured": sum(1 for item in devices if item["state"] == "unconfigured"),
         },
+        "control_enabled": control_enabled,
+        "dry_run": not control_enabled,
     })
 
 
@@ -560,22 +655,46 @@ def api_iot_action(device_id, action):
     if not host:
         return jsonify({"error": "设备不存在"}), 404
 
-    updated_at = now_str()
-    db.execute(
-        "INSERT INTO power_state(device_id, device_name, state, updated_at) VALUES (?,?,?,?) "
-        "ON CONFLICT(device_id) DO UPDATE SET "
-        "device_name=excluded.device_name, state=excluded.state, updated_at=excluded.updated_at",
-        (host["id"], host["name"], action, updated_at),
-    )
-    db.commit()
+    config = load_mi_power_config()
+    mapping = get_mi_mapping(config, host["name"])
+    if not mapping:
+        return jsonify({"error": f"{host['name']} 尚未配置小米电源映射"}), 409
+
+    target_on = action == "on"
+    control_enabled = bool(config.get("enabled", False))
+    dry_run = not control_enabled
+
+    if not dry_run:
+        try:
+            set_mi_power_state(mapping, target_on)
+        except RuntimeError as exc:
+            return jsonify({"error": f"控制失败：{exc}"}), 502
+
+        updated_at = now_str()
+        save_power_state(db, host["id"], host["name"], action, updated_at)
+        db.commit()
+        return jsonify({
+            "ok": True,
+            "dry_run": False,
+            "device": {
+                "id": host["id"],
+                "name": host["name"],
+                "ip": host["ip"],
+                "state": action,
+                "state_updated_at": updated_at,
+            },
+        })
+
     return jsonify({
         "ok": True,
+        "dry_run": True,
+        "message": f"演练模式：已模拟{('上电' if target_on else '断电')}，未对真实设备下发指令",
         "device": {
             "id": host["id"],
             "name": host["name"],
             "ip": host["ip"],
-            "state": action,
-            "state_updated_at": updated_at,
+            "state": None,
+            "state_updated_at": None,
         },
     })
 
@@ -583,6 +702,33 @@ def api_iot_action(device_id, action):
 # ============================ 启动 ============================
 
 
+def get_lan_ip():
+    """探测本机局域网 IPv4，失败时返回 None。"""
+    import socket
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(0.3)
+        # 连接不会真正发送数据，只是让系统选出出口网卡地址。
+        sock.connect(("8.8.8.8", 80))
+        ip = sock.getsockname()[0]
+        sock.close()
+        if ip and not ip.startswith("127."):
+            return ip
+    except Exception:
+        pass
+    return None
+
+
 if __name__ == "__main__":
     init_db()
+    lan_ip = get_lan_ip()
+    print("=" * 48)
+    print("深圳 PC 机时预订系统")
+    print(f"本机访问：   http://127.0.0.1:{config.PORT}/")
+    if lan_ip:
+        print(f"局域网访问： http://{lan_ip}:{config.PORT}/")
+    else:
+        print("局域网访问： 未能自动获取，请运行 ip addr 或 hostname -I 查看")
+    print("=" * 48)
     app.run(host=config.HOST, port=config.PORT, debug=False)

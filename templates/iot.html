@@ -4,7 +4,7 @@
 <div class="iot-heading">
   <div>
     <h3 class="inline">互联设备</h3>
-    <p class="iot-subtitle">小米电源虚拟按键，状态保存在本系统中</p>
+    <p class="iot-subtitle">通过小米电源控制主机上电与断电</p>
   </div>
   <div class="toolbar iot-actions">
     <span id="iotSummary" class="iot-summary">正在读取状态...</span>
@@ -12,7 +12,7 @@
   </div>
 </div>
 <div id="iotGrid" class="power-grid" aria-live="polite">
-  <div class="power-loading">正在读取小米电源状态...</div>
+  <div class="power-loading">正在读取设备状态...</div>
 </div>
 {% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='iot.js') }}"></script>{% endblock %}

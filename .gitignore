@@ -9,6 +9,10 @@ env/
 # 本地敏感 / 运行数据（首次运行自动生成，请勿提交到 GitHub）
 .secret_key
 booking.db
+mi_power.json
+mi_cloud.json
+mi_qr.png
+mi_captcha.png
 *.log
 
 # 与机时预订无关的第三方工具，不随本项目提交
