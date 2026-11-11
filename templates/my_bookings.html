@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}我的预定 - 机时预订{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <h3 class="inline">我的预定</h3>
+  <button id="refreshBtn" class="btn">刷新</button>
+</div>
+<div class="table-wrap">
+  <table class="table" id="myTable">
+    <thead><tr><th>设备</th><th>日期</th><th>小时段</th><th>操作</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<div class="modal" id="cancelBookingModal" hidden>
+  <div class="modal-box cancel-modal-box" role="dialog" aria-modal="true" aria-labelledby="cancelModalTitle">
+    <h3 id="cancelModalTitle">取消预定</h3>
+    <p class="modal-lead">确定取消以下整个时间段？</p>
+    <div class="cancel-summary">
+      <div><span>设备</span><strong id="cancelDevice"></strong></div>
+      <div><span>日期</span><strong id="cancelDate"></strong></div>
+      <div><span>小时段</span><strong id="cancelHours"></strong></div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn" id="closeCancelModal">返回</button>
+      <button type="button" class="btn btn-danger" id="confirmCancelBooking">确认取消</button>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <h3>按时间批量取消</h3>
+  <div class="bulk-fields">
+    <label>开始日期 <input type="date" id="cStart"/></label>
+    <label>结束日期 <input type="date" id="cEnd"/></label>
+    <label>开始小时 <select id="cHourStart"></select></label>
+    <label>结束小时（不含） <select id="cHourEnd"></select></label>
+    <label class="check-item"><input type="checkbox" id="cAllDevices" checked/> 全部设备</label>
+    <select id="cDevice" hidden></select>
+    <button id="bulkCancelBtn" class="btn btn-danger">批量取消</button>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='my_bookings.js') }}"></script>{% endblock %}

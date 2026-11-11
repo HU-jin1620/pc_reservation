@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}预定列表 - 机时预订{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <button id="prevDay" class="btn">‹ 前一天</button>
+  <input type="date" id="datePicker"/>
+  <button id="nextDay" class="btn">后一天 ›</button>
+  <button id="todayBtn" class="btn">回到今天</button>
+  <span class="muted" id="dateLabel"></span>
+</div>
+
+<div class="legend">
+  <span class="lg"><i class="sw free"></i>空闲（单击预定）</span>
+  <span class="lg"><i class="sw mine"></i>我的（单击取消）</span>
+  <span class="lg"><i class="sw other"></i>他人</span>
+</div>
+
+<div id="grid" class="grid-wrap"></div>
+
+<div class="panel">
+  <h3>批量预定</h3>
+  <div class="bulk-row">
+    <div class="bulk-left">
+      <div class="bulk-devices">
+        <div class="bulk-label">选择设备</div>
+        <div class="bulk-checks" id="bulkDevices">
+          <label class="check-item"><input type="checkbox" id="bulkAll" checked/> 全选</label>
+        </div>
+      </div>
+      <div class="bulk-fields">
+        <div class="bulk-fields-title">选择批量时段</div>
+        <label>开始日期 <input type="date" id="bkStart"/></label>
+        <label>结束日期 <input type="date" id="bkEnd"/></label>
+        <label>开始小时 <select id="bkHourStart"></select></label>
+        <label>结束小时（不含） <select id="bkHourEnd"></select></label>
+        <button id="bulkBookBtn" class="btn btn-primary">批量预定</button>
+      </div>
+    </div>
+    <div class="bulk-config" aria-labelledby="bulkConfigTitle">
+      <div class="bulk-config-head">
+        <div>
+          <div class="bulk-label" id="bulkConfigTitle">已选设备配置</div>
+          <div class="bulk-config-caption">配置信息来自设备管理</div>
+        </div>
+        <span class="bulk-config-count" id="bulkConfigCount">正在加载...</span>
+      </div>
+      <div class="bulk-config-table-wrap">
+        <table class="bulk-config-table">
+          <thead>
+            <tr>
+              <th>设备</th>
+              <th>OS</th>
+              <th>CPU</th>
+              <th>主板型号</th>
+              <th>主板厂商</th>
+              <th>内存</th>
+            </tr>
+          </thead>
+          <tbody id="bulkConfigBody">
+            <tr class="bulk-config-empty">
+              <td colspan="6">正在加载设备配置...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='booking.js') }}"></script>{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}设备管理 - 机时预订{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <input type="text" id="searchInput" placeholder="搜索主机名 / IP"/>
+  <button id="addBtn" class="btn btn-primary">新增设备</button>
+</div>
+<div class="table-wrap">
+  <table class="table" id="devTable">
+    <thead>
+      <tr>
+        <th>主机名</th><th>IP</th><th>位置</th><th>OS</th><th>CPU</th>
+        <th>主板型号</th><th>主板厂商</th><th>内存</th><th>操作</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-box">
+    <h3 id="modalTitle">新增设备</h3>
+    <form id="devForm">
+      <input type="hidden" name="id"/>
+      <div class="form-grid">
+        <label>主机名 <input name="name" required/></label>
+        <label>IP <input name="ip" required/></label>
+        <label>位置 <input name="location" value="深圳"/></label>
+        <label>OS <input name="os"/></label>
+        <label>CPU <input name="cpu"/></label>
+        <label>主板型号 <input name="motherboard"/></label>
+        <label>主板厂商 <input name="motherboard_vendor"/></label>
+        <label>内存 <input name="memory"/></label>
+      </div>
+      <div class="modal-actions">
+        <button type="submit" class="btn btn-primary">保存</button>
+        <button type="button" id="cancelBtn" class="btn">取消</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='devices.js') }}"></script>{% endblock %}
